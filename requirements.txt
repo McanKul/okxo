@@ -1,0 +1,5 @@
+python-binance>=1.0.16
+python-dotenv
+numpy
+ta-lib
+requests
