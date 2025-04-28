@@ -50,6 +50,7 @@ class Position:
         """
         SL/TP veya maksimum bekleme süresi tetiklenip tetiklenmediğini kontrol eder.
         Pozisyon kapatıldıysa True döner.
+        #TODO işlem kapatıldıktan sonra otomatik almaya sebepler oluşuyor
         """
         if self.closed:
             return True
@@ -98,11 +99,11 @@ class PositionManager:
     """
     def __init__(self,
                  client: AsyncClient,
-                 base_capital: float = 0.0,
+                 base_capital: float = 10.0,
                  leverage: int = 1,
                  max_concurrent: int = 1,
-                 default_sl_pct: float = 0.0,
-                 default_tp_pct: float = 0.0,
+                 default_sl_pct: float = 3.0,
+                 default_tp_pct: float = 6.0,
                  max_holding_seconds: int = 300):
         self.client = client
         self.base_cap = base_capital
@@ -114,19 +115,34 @@ class PositionManager:
 
         self.open_positions = {}
         self.history = []
+    """
+    round_price
+    UTILS ALTINDA BİR DOSYAYA TAŞINABİLİR
+    #TODO Utils taşımak bür seçenek
+    """
+    def round_price(self, raw, tick, up=False):
+        factor = 1 / tick
+        return (math.ceil if up else math.floor)(raw * factor) / factor
 
-    async def _round_qty(self, symbol: str, qty_f: float) -> float:
+    
+    async def _symbol_filters(self, symbol: str, qty_f: float) -> tuple[float, float]:
         try:
             info = await self.client.futures_exchange_info()
+            step = tick = None
             for s in info['symbols']:
                 if s['symbol'] == symbol:
                     for f in s['filters']:
                         if f['filterType'] == 'LOT_SIZE':
                             lot = float(f['stepSize'])
                             factor = 1 / lot
-                            return math.floor(qty_f * factor) / factor
+                            step = math.floor(qty_f * factor) / factor
+                        if f['filterType'] == 'PRICE_FILTER':
+                            tick = float(f['tickSize'])
+                    if tick and step:
+                        return step, tick
+                        
         except Exception as e:
-            log.error("LOT_SIZE filtresi alınamadı %s: %s", symbol, e)
+            log.error("LOT_SIZE ve PRICE_FILTER alınamadı %s: %s", symbol, e)
         return 0.0
 
     async def open_position(self,
@@ -147,7 +163,7 @@ class PositionManager:
         mark_price = float((await self.client.futures_mark_price(symbol=symbol))["markPrice"])
         notional = self.base_cap * self.leverage
         raw_qty = notional / mark_price
-        qty = await self._round_qty(symbol, raw_qty)
+        qty, tick  = await self._symbol_filters(symbol, raw_qty)
         if qty <= 0:
             return False
 
@@ -183,8 +199,12 @@ class PositionManager:
         # SL ve TP yüzdelerini belirle (parametre veya varsayılan)
         sl_pct = self.def_sl_pct if sl_pct is None else sl_pct
         tp_pct = self.def_tp_pct if tp_pct is None else tp_pct
-        price_sl = mark_price * (1 - sl_pct/100) if side_str == SIDE_BUY else mark_price * (1 + sl_pct/100)
-        price_tp = mark_price * (1 + tp_pct/100) if side_str == SIDE_BUY else mark_price * (1 - tp_pct/100)
+        
+        raw_sl = mark_price * (1 - sl_pct/self.leverage / 100) if side_str == SIDE_BUY else mark_price * (1 + sl_pct/self.leverage / 100)
+        raw_tp = mark_price * (1 + tp_pct/self.leverage / 100) if side_str == SIDE_BUY else mark_price * (1 - tp_pct/self.leverage / 100)
+        
+        price_sl = self.round_price(raw_sl, tick, up=(side_str==SIDE_SELL))
+        price_tp = self.round_price(raw_tp, tick, up=(side_str==SIDE_BUY))
 
         # Stop-loss ve take-profit emirleri oluştur
         try:
@@ -192,18 +212,21 @@ class PositionManager:
                 symbol=symbol,
                 side=opp_str,
                 type=FUTURE_ORDER_TYPE_STOP_MARKET,
-                stopPrice=f"{price_sl:.8f}",
+                stopPrice=f"{price_sl:.{abs(int(math.log10(tick)))}f}",
                 closePosition=True
             )
+        except BinanceAPIException as e:
+            log.warning("%s SL emri hatası: %s", symbol, e)       
+        try:
             await self.client.futures_create_order(
                 symbol=symbol,
                 side=opp_str,
                 type=FUTURE_ORDER_TYPE_TAKE_PROFIT_MARKET,
-                stopPrice=f"{price_tp:.8f}",
+                stopPrice=f"{price_tp:.{abs(int(math.log10(tick)))}f}",
                 closePosition=True
             )
         except BinanceAPIException as e:
-            log.warning("%s SL/TP emri hatası: %s", symbol, e)
+            log.warning("%s TP emri hatası: %s", symbol, e)
 
         pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time())
         self.open_positions[symbol] = pos

@@ -7,6 +7,7 @@ from binance import AsyncClient
 from strategies import load_strategy
 from live.position_manager import PositionManager
 from live.streamer import Streamer
+from utils.config_loaders import *
 
 class LiveEngine:
     """
@@ -24,8 +25,8 @@ class LiveEngine:
             base_capital=cfg.get("base_usdt_per_trade", 0.0),
             leverage=cfg.get("leverage", 1),
             max_concurrent=cfg.get("max_concurrent", 1),
-            default_sl_pct=cfg.get("sl_pct", 0.0),
-            default_tp_pct=cfg.get("tp_pct", 0.0),
+            default_sl_pct=cfg.get("sl_pct", 3.0),
+            default_tp_pct=cfg.get("tp_pct", 6.0),
             max_holding_seconds=cfg.get("expire_sec", 300)
         )
         self.symbols = []
