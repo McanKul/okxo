@@ -1,6 +1,4 @@
-"""
-streamer.py - Asynchronous WebSocket streamer using BinanceSocketManager.
-"""
+# streamer.py - Asenkron WebSocket yayınlayıcı (Binance futures kline).
 import asyncio
 import logging
 from binance import BinanceSocketManager
@@ -9,47 +7,69 @@ log = logging.getLogger("Streamer")
 
 class Streamer:
     """
-    Streams kline data for given symbols asynchronously.
+    Verilen semboller için asenkron kline verisi yayınlar.
     """
     def __init__(self, client, symbols, interval: str = "1m"):
         self.client = client
+        # Sembolleri büyük harfe çevir ve formatla
         self.symbols = [sym.replace("/", "").upper() for sym in symbols]
         self.interval = interval
         self.queue = asyncio.Queue()
         self.bsm = BinanceSocketManager(self.client)
         self.tasks = []
 
-    async def _stream_symbol(self, symbol: str):
+    async def _stream_multiplex(self, streams):
         """
-        Stream kline data for one symbol and put closed bars into queue.
+        Belirtilen stream isimleri için çoklu (multiplex) websocket bağlantısı açar.
         """
-        socket = self.bsm.kline_socket(symbol=symbol, interval=self.interval)
+        try:
+            socket = self.bsm.futures_multiplex_socket(streams)
+        except Exception as e:
+            log.error("Multiplex soket açılamadı: %s", e)
+            return
+
         async with socket as stream:
             while True:
-                msg = await stream.recv()
-                k = msg.get("k", {})
-                # Emit only when candle is closed
-                if k.get("x"):
-                    await self.queue.put(msg)
+                try:
+                    msg = await stream.recv()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    log.error("Veri akışı hatası: %s", e)
+                    break
+                data = msg.get("data", {})
+                k = data.get("k", {})
+                # Sadece kapanan mumları al
+                if k and k.get("x"):
+                    sym = data.get("s")
+                    bar = {"s": sym, "k": k}
+                    await self.queue.put(bar)
 
     async def start(self):
         """
-        Start streaming for all symbols asynchronously.
+        Tüm semboller için yayın akışını başlatır (otomatik gruplayarak).
         """
+        # Stream isimlerini hazırla
+        streams = []
         for sym in self.symbols:
-            task = asyncio.create_task(self._stream_symbol(sym))
+            streams.append(f"{sym.lower()}@kline_{self.interval}")
+        # Çoklu akışları gruplandır (örneğin, her grupta 50 stream)
+        max_per_stream = 50
+        for i in range(0, len(streams), max_per_stream):
+            chunk = streams[i:i+max_per_stream]
+            task = asyncio.create_task(self._stream_multiplex(chunk))
             self.tasks.append(task)
-        log.info("Streamer started for symbols: %s", self.symbols)
+        log.info("Streamer başlatıldı (semboller gruplandı): %s", self.symbols)
 
     async def get(self):
         """
-        Asynchronously get a message (closed bar) from the queue.
+        Kuyruktan bir mesaj (kapanan mum) alır.
         """
         return await self.queue.get()
 
     async def stop(self):
         """
-        Stop all streaming tasks and close the Binance connection.
+        Tüm yayın görevlerini durdurur ve Binance bağlantısını kapatır.
         """
         for task in self.tasks:
             task.cancel()
@@ -58,4 +78,4 @@ class Streamer:
             await self.client.close_connection()
         except Exception:
             pass
-        log.info("Streamer stopped.")
+        log.info("Streamer durduruldu.")

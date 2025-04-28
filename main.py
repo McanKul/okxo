@@ -1,12 +1,4 @@
-"""
-main.py - Entry point for trading bot (live or backtest mode).
-
-Requires:
-- python-binance (AsyncClient)
-- PyYAML (for configuration)
-- Other modules: pandas, strategies, backtest, data_fetcher as needed.
-"""
-
+# main.py - Ticaret botu giriş noktası (LIVE veya BACKTEST modu).
 import asyncio
 import logging
 import sys
@@ -20,9 +12,9 @@ from live.live_engine import LiveEngine
 
 async def run_backtest(cfg):
     """
-    Run backtest in executor to avoid blocking the event loop.
+    Backtest'i yürütür (Executor içinde, event loop'u bloklamamak için).
     """
-    # Imports for backtesting (assumes these modules are available)
+    # Backtest için gerekli modüller
     from utils.io import load_ohlcv_csv
     from strategies import load_strategy
     from backtest.backtester import BacktestEngine
@@ -36,30 +28,28 @@ async def run_backtest(cfg):
     if csv_path.exists():
         df = load_ohlcv_csv(csv_path)
     else:
-        # Fetch data if not available
         try:
             pair = f"{sym.replace('USDT', '')}/USDT"
             df = DataFetcher().fetch_ohlcv(pair, tf)
         except Exception as e:
-            logging.error("Failed to fetch data for backtest: %s", e)
+            logging.error("Backtest için veri alınamadı: %s", e)
             return None
 
     strategy = load_strategy(strat_cfg)
     engine = BacktestEngine(df, strategy, initial_balance=cfg.get("initial_balance", 1000))
-    # Run backtest synchronously in executor
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, engine.run)
     return result
 
 async def async_main():
-    # Load configuration
+    # Yapılandırma dosyasını yükle
     ROOT = Path(__file__).parent
-    CONFIG_PATH = ROOT / "config"/"config.yaml"
+    CONFIG_PATH = ROOT / "config" / "config.yaml"
     try:
         with open(CONFIG_PATH) as f:
             cfg = yaml.safe_load(f)
     except FileNotFoundError:
-        sys.exit(f"⚠ Configuration file not found: {CONFIG_PATH}")
+        sys.exit(f"⚠ Yapılandırma dosyası bulunamadı: {CONFIG_PATH}")
 
     logging.basicConfig(
         level=logging.INFO if cfg.get("debug", False) else logging.WARNING,
@@ -71,27 +61,51 @@ async def async_main():
     if mode == "BACKTEST":
         result = await run_backtest(cfg)
         if result:
-            print("Final balance:", result.get("final_balance", "N/A"))
+            print("Final bakiye:", result.get("final_balance", "N/A"))
 
     elif mode == "LIVE":
-        
-        # Ensure API keys are set
+        # .env dosyasından API anahtarlarını yükle (varsa)
         load_dotenv(ROOT / "config" / ".env", override=False)
         api_key = cfg.get("api_key") or os.getenv("API_KEY")
         api_secret = cfg.get("api_secret") or os.getenv("API_SECRET")
         if not (api_key and api_secret):
-            sys.exit("⚠ LIVE mode requires API_KEY and API_SECRET in config or .env")
+            sys.exit("⚠ LIVE modu için API_KEY ve API_SECRET tanımlı değil (config veya .env).")
 
-        # Initialize Binance async client
-        
-        client = await AsyncClient.create(api_key, api_secret)
+        # Binance AsyncClient oluştur
+        try:
+            client = await AsyncClient.create(api_key, api_secret)
+        except Exception as e:
+            sys.exit(f"⚠ Binance istemcisi oluşturulamadı: {e}")
+
+        # Risk yüzdesine göre işlem başına sermayeyi hesapla
+        if cfg.get("risk_pct") is not None:
+            try:
+                account_info = await client.futures_account_balance()
+                usdt_balance = 0.0
+                for asset in account_info:
+                    if asset['asset'] == 'USDT':
+                        usdt_balance = float(asset['balance'])
+                        break
+                risk_pct = cfg.get("risk_pct", 0) / 100.0
+                base_usdt = usdt_balance * risk_pct
+                # Güncellenen temel işlem tutarını config'e yaz
+                cfg['base_usdt_per_trade'] = base_usdt
+                logging.info("Risk yüzdesi kullanıldı: Hesap bakiyesi=%.2f, risk_pct=%.2f%%, işlem başına USDT=%.2f",
+                             usdt_balance, cfg.get("risk_pct"), base_usdt)
+            except Exception as e:
+                logging.error("Hesap bilgisi alınamadı: %s", e)
+
+        # Canlı alım-satım motorunu çalıştır
         engine = LiveEngine(cfg, client)
-        await engine.run()
-        # Close Binance client connection
-        await client.close_connection()
+        try:
+            await engine.run()
+        except Exception as e:
+            logging.error("LiveEngine çalışırken hata: %s", e)
+        finally:
+            await client.close_connection()
 
     else:
-        sys.exit(f"⚠ Invalid mode: {mode}  (choose BACKTEST or LIVE)")
+        sys.exit(f"⚠ Geçersiz mod: {mode} (BACKTEST veya LIVE seçilmeli)")
 
 if __name__ == "__main__":
     asyncio.run(async_main())

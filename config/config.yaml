@@ -3,7 +3,7 @@ data_csv          : data/BTC_1hour.csv
 timeframes        : [ "1m", "5m", "15m" ]     # dinamik – istediğin eklenir
 coins             : ALL_USDT     # veya ["BTCUSDT","ETHUSDT", ...]
 max_concurrent    : 5
-risk_pct          : 0.01         # işlemlerde sermayenin %1’i
+risk_pct          : 16.0        # işlemlerde sermayenin %1’i
 leverage          : 4
 sl_pct            : 3.0
 tp_pct            : 6.0
