@@ -1,0 +1,21 @@
+mode              : LIVE
+data_csv          : data/BTC_1hour.csv
+timeframes        : [ "1m", "5m", "15m" ]     # dinamik – istediğin eklenir
+coins             : ALL_USDT     # veya ["BTCUSDT","ETHUSDT", ...]
+max_concurrent    : 5
+risk_pct          : 0.01         # işlemlerde sermayenin %1’i
+leverage          : 4
+sl_pct            : 3.0
+tp_pct            : 6.0
+base_usdt_per_trad: 10
+debug             : TRUE
+strategies        :                       # birden çok strateji mümkün
+  - name          : rsi_threshold_strategy
+    params        :
+      rsi_overbought : 70        # dinamik parametreler
+      rsi_oversold   : 30
+      lookback_rsi   : 14
+      use_trend_filter : true
+commission_pct : 0.04            # back-testte kullan
+slippage_pct   : 0.01
+expire_sec     : 300
