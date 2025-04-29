@@ -16,7 +16,7 @@ class Position:
                  qty: float, entry_price: float,
                  sl_price: float = None, tp_price: float = None,
                  opened_ts: float = None,
-                 tick: int = 8
+                 tick: int = None 
                  ):
         self.client = client
         self.symbol = symbol
@@ -89,7 +89,7 @@ class Position:
                      self.symbol, self.side, price, self.exit_type)
             try:
                 # Açık tüm siparişleri iptal et
-                await self.client.futures_cancel_all_open_orders(self.symbol)
+                await self.client.futures_cancel_all_open_orders(symbol=self.symbol)
             except BinanceAPIException:
                 log.info("%s emirler iptal edilirken bir sıkıntı oluştu)",
                      self.symbol)
@@ -119,12 +119,13 @@ class PositionManager:
 
         self.open_positions = {}
         self.history = []
-    """
-    round_price
-    UTILS ALTINDA BİR DOSYAYA TAŞINABİLİR
-    #TODO Utils taşımak bür seçenek
-    """
+
     def round_price(self, raw, tick, up=False):
+        """
+        round_price
+        UTILS ALTINDA BİR DOSYAYA TAŞINABİLİR
+        #TODO Utils taşımak bür seçenek
+        """
         factor = 1 / tick
         return (math.ceil if up else math.floor)(raw * factor) / factor
 
