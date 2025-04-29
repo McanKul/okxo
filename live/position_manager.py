@@ -15,7 +15,9 @@ class Position:
     def __init__(self, client: AsyncClient, symbol: str, side: str,
                  qty: float, entry_price: float,
                  sl_price: float = None, tp_price: float = None,
-                 opened_ts: float = None):
+                 opened_ts: float = None,
+                 tick: int = 8
+                 ):
         self.client = client
         self.symbol = symbol
         self.side = side  # SIDE_BUY veya SIDE_SELL
@@ -28,7 +30,8 @@ class Position:
         self.exit_ts = None
         self.exit = None
         self.exit_type = None  # "SL", "TP" veya "MANUAL"
-
+        self.tick = tick
+    
     async def _current_price(self) -> float:
         res = await self.client.futures_mark_price(symbol=self.symbol)
         return float(res["markPrice"])
@@ -40,7 +43,7 @@ class Position:
                 symbol=self.symbol,
                 side=opp,
                 type=FUTURE_ORDER_TYPE_MARKET,
-                quantity=f"{self.qty:.8f}"
+                quantity=f"{self.qty:.{abs(int(math.log10(self.tick)))}f}"
             )
         except BinanceAPIException as e:
             log.error("Piyasa emriyle kapama hatası %s: %s", self.symbol, e)
@@ -86,9 +89,10 @@ class Position:
                      self.symbol, self.side, price, self.exit_type)
             try:
                 # Açık tüm siparişleri iptal et
-                await self.client.futures_cancel_all_open_orders(symbol=self.symbol)
+                await self.client.futures_cancel_all_open_orders(self.symbol)
             except BinanceAPIException:
-                pass
+                log.info("%s emirler iptal edilirken bir sıkıntı oluştu)",
+                     self.symbol)
 
         return self.closed
 
@@ -184,13 +188,24 @@ class PositionManager:
             log.error("%s kaldıraç ayarlanamadı: %s", symbol, e)
             return False
 
-        # Pozisyon açmak için piyasa emri
+
+        # SL ve TP yüzdelerini belirle (parametre veya varsayılan)
+        sl_pct = self.def_sl_pct if sl_pct is None else sl_pct
+        tp_pct = self.def_tp_pct if tp_pct is None else tp_pct
+        
+        raw_sl = mark_price * (1 - sl_pct/self.leverage / 100) if side_str == SIDE_BUY else mark_price * (1 + sl_pct/self.leverage / 100)
+        raw_tp = mark_price * (1 + tp_pct/self.leverage / 100) if side_str == SIDE_BUY else mark_price * (1 - tp_pct/self.leverage / 100)
+        
+        price_sl = self.round_price(raw_sl, tick, up=(side_str==SIDE_SELL))
+        price_tp = self.round_price(raw_tp, tick, up=(side_str==SIDE_BUY))
+
+                # Pozisyon açmak için piyasa emri
         try:
             await self.client.futures_create_order(
                 symbol=symbol,
                 side=side_str,
                 type=FUTURE_ORDER_TYPE_MARKET,
-                quantity=f"{qty:.8f}"
+                quantity=f"{qty:.{abs(int(math.log10(tick)))}f}"
             )
         except BinanceAPIException as e:
             log.error("%s piyasa emri hatası: %s", symbol, e)
@@ -228,7 +243,7 @@ class PositionManager:
         except BinanceAPIException as e:
             log.warning("%s TP emri hatası: %s", symbol, e)
 
-        pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time())
+        pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time(),tick)
         self.open_positions[symbol] = pos
         log.info("%s %s pozisyon açıldı: miktar=%s, SL=%.8f, TP=%.8f",
                  symbol, side_str, qty, price_sl, price_tp)
