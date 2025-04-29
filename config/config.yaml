@@ -11,7 +11,7 @@ base_usdt_per_trade: 10
 history_limit     : 50          #geçmiş mumlar
 debug             : TRUE
 strategies        :             # birden çok strateji mümkün
-  - name          : rsi_threshold_strategy
+  - name          : rsi_macd_confirm
     params        :
       rsi_overbought : 80        # dinamik parametreler
       rsi_oversold   : 20

@@ -70,3 +70,34 @@ class ConfigLoader:
 
     def get_general(self) -> dict:
         return self.config.get("general", {})
+    
+    def get_base_usdt_per_trade(self) -> float:
+        return self.config.get("base_usdt_per_trade", 0.0),
+
+    def get_leverage(self) -> float:
+        return self.config.get("leverage", 1),
+        
+    def get_max_concurrent(self) -> int:
+        return self.config.get("max_concurrent", 1),
+    
+    def get_sl_pct(self) -> float:
+        return self.config.get("sl_pct", 3.0),
+    
+    def get_tp_pct(self) -> float:
+        return self.config.get("tp_pct", 6.0),
+    
+    def get_expire_sec(self) -> int:
+        return self.config.get("expire_sec", 300)
+
+    def get_history_limit(self) -> int:
+        return self.config.get("history_limit", 250)
+    
+    def get_debug(self) ->bool:
+        return self.config.get("debug", False)
+    
+    def get_mode(self) ->str:
+        return self.config.get("mode", "BACKTEST")
+    
+    def get_risk_pct(self) ->float:
+        return self.config.get("risk_pct",0)
+    

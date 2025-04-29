@@ -7,27 +7,27 @@ from binance import AsyncClient
 from strategies import load_strategy
 from live.position_manager import PositionManager
 from live.streamer import Streamer
-from utils.config_loaders import *
+
 
 class LiveEngine:
     """
     Canlı modda asenkron veri akışlarını işleyen işlem motoru.
     """
-    def __init__(self, cfg, client: AsyncClient):
-        self.cfg = cfg
+    def __init__(self,cfg,client: AsyncClient):
+        self.cfg = cfg;
         self.client = client
-        self.tf = cfg["timeframes"][0]  # Zaman dilimi (timeframe)
+        self.tf = cfg.get_timeframes()[0]  # todo sadece ilk time frame alıyoruz şimdilik
         # Stratejiyi yükle (ilk strateji kullanılıyor)
-        self.strategy = load_strategy(cfg["strategies"][0])
+        self.strategy = load_strategy(cfg.get_strategies()[0]) #todo sadece ilk stratejiyi alıyoruz şimdilik
         # Pozisyon yöneticisini oluştur
         self.pos_mgr = PositionManager(
             client=self.client,
-            base_capital=cfg.get("base_usdt_per_trade", 0.0),
-            leverage=cfg.get("leverage", 1),
-            max_concurrent=cfg.get("max_concurrent", 1),
-            default_sl_pct=cfg.get("sl_pct", 3.0),
-            default_tp_pct=cfg.get("tp_pct", 6.0),
-            max_holding_seconds=cfg.get("expire_sec", 300)
+            base_capital=cfg.get_base_usdt_per_trade(),
+            leverage=cfg.get_leverage(),
+            max_concurrent=cfg.get_max_concurrent(),
+            default_sl_pct=cfg.get_sl_pct(),
+            default_tp_pct=cfg.get_tp_pct(),
+            max_holding_seconds=cfg.get_expire_sec()
         )
         self.symbols = []
 
@@ -35,7 +35,8 @@ class LiveEngine:
         """
         Sembol listesini belirle: config'teki listeden veya ALL_USDT kullanılarak.
         """
-        coins = self.cfg.get("coins", [])
+        coins = self.cfg.get_coins()
+        
         if coins == "ALL_USDT":
             try:
                 info = await self.client.futures_exchange_info()
@@ -86,7 +87,7 @@ class LiveEngine:
         self.symbols = resolved
 
         # Geçmiş veri ön yüklemesi
-        history_limit = self.cfg.get("history_limit", 250)
+        history_limit = self.cfg.get_history_limit()
         await self.preload_history(limit=history_limit)
         logging.info("Canlı mod başladı: Semboller=%s, Zaman dilimi=%s", self.symbols, self.tf)
 

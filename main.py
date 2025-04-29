@@ -9,6 +9,7 @@ import yaml
 
 from binance import AsyncClient
 from live.live_engine import LiveEngine
+from utils.config_loaders import ConfigLoader
 
 async def run_backtest(cfg):
     """
@@ -45,18 +46,18 @@ async def async_main():
     # Yapılandırma dosyasını yükle
     ROOT = Path(__file__).parent
     CONFIG_PATH = ROOT / "config" / "config.yaml"
+    ENV_PATH = ROOT / "config" / ".env"
     try:
-        with open(CONFIG_PATH) as f:
-            cfg = yaml.safe_load(f)
+        cfg = ConfigLoader(CONFIG_PATH,ENV_PATH)
     except FileNotFoundError:
         sys.exit(f"⚠ Yapılandırma dosyası bulunamadı: {CONFIG_PATH}")
 
     logging.basicConfig(
-        level=logging.INFO if cfg.get("debug", False) else logging.WARNING,
+        level=logging.INFO if cfg.get_debug() else logging.WARNING,
         format="%(asctime)s %(levelname)s: %(message)s"
     )
 
-    mode = cfg.get("mode", "BACKTEST").upper()
+    mode = cfg.get_mode().upper()
 
     if mode == "BACKTEST":
         result = await run_backtest(cfg)
@@ -64,10 +65,9 @@ async def async_main():
             print("Final bakiye:", result.get("final_balance", "N/A"))
 
     elif mode == "LIVE":
-        # .env dosyasından API anahtarlarını yükle (varsa)
-        load_dotenv(ROOT / "config" / ".env", override=False)
-        api_key = cfg.get("api_key") or os.getenv("API_KEY")
-        api_secret = cfg.get("api_secret") or os.getenv("API_SECRET")
+
+        api_key,api_secret = cfg.get_api_keys()
+        
         if not (api_key and api_secret):
             sys.exit("⚠ LIVE modu için API_KEY ve API_SECRET tanımlı değil (config veya .env).")
 
@@ -78,7 +78,7 @@ async def async_main():
             sys.exit(f"⚠ Binance istemcisi oluşturulamadı: {e}")
 
         # Risk yüzdesine göre işlem başına sermayeyi hesapla
-        if cfg.get("risk_pct") is not None:
+        if cfg.get_risk_pct() is not None:
             try:
                 account_info = await client.futures_account_balance()
                 usdt_balance = 0.0
@@ -86,12 +86,11 @@ async def async_main():
                     if asset['asset'] == 'USDT':
                         usdt_balance = float(asset['balance'])
                         break
-                risk_pct = cfg.get("risk_pct", 0) / 100.0
+                risk_pct = cfg.get_risk_pct() / 100.0
                 base_usdt = usdt_balance * risk_pct
                 # Güncellenen temel işlem tutarını config'e yaz
-                cfg['base_usdt_per_trade'] = base_usdt
                 logging.info("Risk yüzdesi kullanıldı: Hesap bakiyesi=%.2f, risk_pct=%.2f%%, işlem başına USDT=%.2f",
-                             usdt_balance, cfg.get("risk_pct"), base_usdt)
+                             usdt_balance, cfg.get_risk_pct(), base_usdt)
             except Exception as e:
                 logging.error("Hesap bilgisi alınamadı: %s", e)
 
