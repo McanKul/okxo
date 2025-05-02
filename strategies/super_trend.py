@@ -5,41 +5,59 @@ from strategies.base_strategy import BaseStrategy
 
 
 class Strategy(BaseStrategy):
-    """
-    SupertrendStrategy
-    """
+    """SupertrendStrategy with ConfigLoader integration."""
 
-    def __init__(self, atr_period: int = 10, multiplier: int = 2, **kw):
+    def __init__(self, atr_period: int = 10, multiplier: float = 2.0, **kw):
         super().__init__(atr_period=atr_period, multiplier=multiplier, **kw)
-        self.atr_p, self.mult = atr_period, multiplier
+        self.atr_period = atr_period
+        self.multiplier = multiplier
 
     def _live_signal(self, o, h, l, c, v):
-        if c.size < self.atr_p + 2:
+        if len(c) < self.atr_period + 2:
             return None
-        atr = talib.ATR(h, l, c, timeperiod=self.atr_p)
-        upper = (h + l) / 2 + self.mult * atr
-        lower = (h + l) / 2 - self.mult * atr
-        st = upper.copy()
+
+        # Supertrend calculation
+        atr = talib.ATR(h, l, c, timeperiod=self.atr_period)
+        upperband = (h + l) / 2 + (self.multiplier * atr)
+        lowerband = (h + l) / 2 - (self.multiplier * atr)
+
+        supertrend = np.zeros_like(c)
+        supertrend[0] = upperband[0]
+
         for i in range(1, len(c)):
-            st[i] = min(upper[i], st[i - 1]) if c[i - 1] <= st[i - 1] else max(lower[i], st[i - 1])
-        trend_now, trend_prev = c[-1] > st[-1], c[-2] > st[-2]
-        if not trend_prev and trend_now:
-            return +1
-        if trend_prev and not trend_now:
-            return -1
+            if c[i - 1] <= supertrend[i - 1]:
+                supertrend[i] = min(upperband[i], supertrend[i - 1])
+            else:
+                supertrend[i] = max(lowerband[i], supertrend[i - 1])
+
+        # Signal generation logic
+        if c[-2] <= supertrend[-2] and c[-1] > supertrend[-1]:
+            return +1  # Bullish crossover
+        elif c[-2] >= supertrend[-2] and c[-1] < supertrend[-1]:
+            return -1  # Bearish crossover
         return None
 
     @staticmethod
-    def generate_signals(df: pd.DataFrame, atr_period=10, multiplier=2) -> pd.Series:
+    def generate_signals(df: pd.DataFrame, atr_period=10, multiplier=2.0) -> pd.Series:
+        """Vectorized Supertrend Signal Generation."""
         h, l, c = df["high"].values, df["low"].values, df["close"].values
+
         atr = talib.ATR(h, l, c, timeperiod=atr_period)
-        upper = (h + l) / 2 + multiplier * atr
-        lower = (h + l) / 2 - multiplier * atr
-        st = np.copy(upper)
+        upperband = (h + l) / 2 + multiplier * atr
+        lowerband = (h + l) / 2 - multiplier * atr
+
+        supertrend = np.zeros_like(c)
+        supertrend[0] = upperband[0]
+
         for i in range(1, len(c)):
-            st[i] = min(upper[i], st[i - 1]) if c[i - 1] <= st[i - 1] else max(lower[i], st[i - 1])
-        trend = c > st
-        sig = np.zeros_like(c, dtype=int)
-        sig[1:][(~trend[:-1]) & trend[1:]] = 1
-        sig[1:][trend[:-1] & (~trend[1:])] = -1
-        return pd.Series(sig, index=df.index, name="signal")
+            if c[i - 1] <= supertrend[i - 1]:
+                supertrend[i] = min(upperband[i], supertrend[i - 1])
+            else:
+                supertrend[i] = max(lowerband[i], supertrend[i - 1])
+
+        trend = c > supertrend
+        signals = np.zeros(len(c), dtype=int)
+        signals[1:][(~trend[:-1]) & trend[1:]] = 1  # Bullish crossover
+        signals[1:][trend[:-1] & (~trend[1:])] = -1  # Bearish crossover
+
+        return pd.Series(signals, index=df.index, name="signal")

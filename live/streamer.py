@@ -1,4 +1,4 @@
-# streamer.py - Asenkron WebSocket yayınlayıcı (Binance futures kline).
+# streamer.py - Asenkron WebSocket yayınlayıcı (Binance futures kline) (çoklu timeframe desteği).
 import asyncio
 import logging
 from binance import BinanceSocketManager
@@ -7,20 +7,24 @@ log = logging.getLogger("Streamer")
 
 class Streamer:
     """
-    Verilen semboller için asenkron kline verisi yayınlar.
+    Verilen semboller ve zaman dilimleri için asenkron kline verisi yayınlar.
     """
-    def __init__(self, client, symbols, interval: str = "1m"):
+    def __init__(self, client, symbols, intervals):
         self.client = client
         # Sembolleri büyük harfe çevir ve formatla
         self.symbols = [sym.replace("/", "").upper() for sym in symbols]
-        self.interval = interval
+        # interval tek str veya list olabilir
+        if isinstance(intervals, (list, tuple)):
+            self.intervals = intervals
+        else:
+            self.intervals = [intervals]
         self.queue = asyncio.Queue()
         self.bsm = BinanceSocketManager(self.client)
         self.tasks = []
 
     async def _stream_multiplex(self, streams):
         """
-        Belirtilen stream isimleri için çoklu (multiplex) websocket bağlantısı açar.
+        Verilen stream isimleri için çoklu (multiplex) websocket bağlantısı açar.
         """
         try:
             socket = self.bsm.futures_multiplex_socket(streams)
@@ -47,19 +51,21 @@ class Streamer:
 
     async def start(self):
         """
-        Tüm semboller için yayın akışını başlatır (otomatik gruplayarak).
+        Tüm semboller ve zaman dilimleri için yayın akışını başlatır (otomatik gruplayarak).
         """
-        # Stream isimlerini hazırla
+        
         streams = []
         for sym in self.symbols:
-            streams.append(f"{sym.lower()}@kline_{self.interval}")
+            for interval in self.intervals:
+                streams.append(f"{sym.lower()}@kline_{interval}")
+
         # Çoklu akışları gruplandır (örneğin, her grupta 50 stream)
         max_per_stream = 50
         for i in range(0, len(streams), max_per_stream):
-            chunk = streams[i:i+max_per_stream]
+            chunk = streams[i:i + max_per_stream]
             task = asyncio.create_task(self._stream_multiplex(chunk))
             self.tasks.append(task)
-        log.info("Streamer başlatıldı (semboller gruplandı): %s", self.symbols)
+        log.info("Streamer başlatıldı (semboller/zaman dilimleri gruplandı): %s x %s", self.symbols, self.intervals)
 
     async def get(self):
         """

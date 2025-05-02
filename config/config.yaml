@@ -1,28 +1,29 @@
 mode              : LIVE
 data_csv          : data/BTC_1hour.csv
-timeframes        : [ "1m", "5m", "15m" ]     # dinamik – istediğin eklenir
-coins             : ALL_USDT     # veya ["BTCUSDT","ETHUSDT", ...]
+coins             : ALL_USDT
 max_concurrent    : 5
 risk_pct          : 16.0        # işlemlerde sermayenin %1’i
-leverage          : 4
-sl_pct            : 3.0
-tp_pct            : 6.0
-base_usdt_per_trade: 10
-history_limit     : 50          #geçmiş mumlar
 debug             : TRUE
-strategies        :             # birden çok strateji mümkün
-  - name          : "rsi_macd_confirm"
-    params        :
-      rsi_overbought : 85        # dinamik parametreler
-      rsi_oversold   : 15
-      lookback_rsi   : 14
-      use_trend_filter : true
-  - name          : rsi_threshold_strategy
-    params        :
-      rsi_overbought : 85        # dinamik parametreler
-      rsi_oversold   : 15
-      lookback_rsi   : 14
-      use_trend_filter : true
-commission_pct : 0.04            # back-testte kullan
-slippage_pct   : 0.01
-expire_sec     : 300
+base_usdt_per_trade: 10
+
+default_params:
+  leverage          : 4
+  sl_pct            : 3.0
+  tp_pct            : 6.0
+  history_limit     : 50           # geçmiş mumlar
+  commission_pct : 0.04            # back-testte kullan
+  slippage_pct   : 0.01
+  expire_sec     : 720
+
+strategies:
+  - name: super_trend
+    timeframes: ["1m", "15m"]
+    params:
+      atr_period: 12
+      multiplier: 3.0
+    overrides:
+      leverage : 5
+      sl_pct   : 2.0
+      tp_pct   : 4.0
+
+

@@ -49,8 +49,8 @@ async def async_main():
     ENV_PATH = ROOT / "config" / ".env"
     try:
         cfg = ConfigLoader(CONFIG_PATH,ENV_PATH)
-    except FileNotFoundError:
-        sys.exit(f"⚠ Yapılandırma dosyası bulunamadı: {CONFIG_PATH}")
+    except FileNotFoundError as e:
+        sys.exit(f"⚠ Yapılandırma dosyası bulunamadı: {e}")
 
     logging.basicConfig(
         level=logging.INFO if cfg.get_debug() else logging.WARNING,

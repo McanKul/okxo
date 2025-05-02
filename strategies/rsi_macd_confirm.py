@@ -19,8 +19,8 @@ class Strategy(BaseStrategy):
             return None
         rsi = talib.RSI(c, timeperiod=self.p)
         macd, macd_sig, _ = talib.MACD(c)
-        buy = rsi[-2] < 20 <= rsi[-1] and macd[-2] < macd_sig[-2] < macd[-1] > macd_sig[-1]
-        sell = rsi[-2] > 80 >= rsi[-1] and macd[-2] > macd_sig[-2] > macd[-1] < macd_sig[-1]
+        buy = rsi[-2] < 25 <= rsi[-1] and macd[-2] < macd_sig[-2] < macd[-1] > macd_sig[-1]
+        sell = rsi[-2] > 75 >= rsi[-1] and macd[-2] > macd_sig[-2] > macd[-1] < macd_sig[-1]
         if buy:
             return +1
         if sell:
@@ -33,6 +33,6 @@ class Strategy(BaseStrategy):
         rsi = talib.RSI(close, timeperiod=rsi_period)
         macd, macd_sig, _ = talib.MACD(close)
         sig = np.zeros_like(close, dtype=int)
-        sig[1:][(rsi[:-1] < 20) & (rsi[1:] >= 20) & (macd[:-1] < macd_sig[:-1]) & (macd[1:] > macd_sig[1:])] = 1
-        sig[1:][(rsi[:-1] > 80) & (rsi[1:] <= 80) & (macd[:-1] > macd_sig[:-1]) & (macd[1:] < macd_sig[1:])] = -1
+        sig[1:][(rsi[:-1] < 25) & (rsi[1:] >= 25) & (macd[:-1] < macd_sig[:-1]) & (macd[1:] > macd_sig[1:])] = 1
+        sig[1:][(rsi[:-1] > 75) & (rsi[1:] <= 75) & (macd[:-1] > macd_sig[:-1]) & (macd[1:] < macd_sig[1:])] = -1
         return pd.Series(sig, index=df.index, name="signal")
