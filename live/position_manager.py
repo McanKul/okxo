@@ -14,7 +14,8 @@ class Position:
                  qty: float, entry_price: float,
                  sl_price: float = None, tp_price: float = None,
                  opened_ts: float = None,
-                 tick: int = None, strategy: str = None):
+                 tick: int = None, strategy: str = None,
+                 expire_sec: int = 3600):
         self.client = client
         self.symbol = symbol
         self.side = side
@@ -27,6 +28,7 @@ class Position:
         self.exit_ts = None
         self.exit = None
         self.exit_type = None
+        self.expire_sec = expire_sec
         self.tick = tick
         self.strategy = strategy
 
@@ -207,7 +209,7 @@ class PositionManager:
         except BinanceAPIException as e:
             log.warning("%s TP emri hatası: %s", symbol, e)
 
-        pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time(), tick, strategy=strategy_name)
+        pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time(), tick, strategy=strategy_name, expire_sec=expire_sec)
         self.open_positions[key] = pos
         log.info("%s [%s] pozisyon açıldı: miktar=%.4f, SL=%.8f, TP=%.8f",
                  symbol, strategy_name, qty, price_sl, price_tp)
