@@ -128,6 +128,7 @@ class LiveEngine:
                                 symbol=sym,
                                 side=1,
                                 strategy_name=strat["name"],
+                                timeframes=tf,
                                 **{k: strat["params"][k] for k in ["leverage","sl_pct","tp_pct","expire_sec"]}
                             )
                             await self.pos_mgr.update_all()
@@ -136,6 +137,7 @@ class LiveEngine:
                                 symbol=sym,
                                 side=-1,
                                 strategy_name=strat["name"],
+                                timeframes=tf,
                                 **{k: strat["params"][k] for k in ["leverage","sl_pct","tp_pct","expire_sec"]}
                             )
                             await self.pos_mgr.update_all()

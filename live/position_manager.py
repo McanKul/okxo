@@ -15,7 +15,8 @@ class Position:
                  sl_price: float = None, tp_price: float = None,
                  opened_ts: float = None,
                  tick: int = None, strategy: str = None,
-                 expire_sec: int = 3600):
+                 expire_sec: int = 3600,
+                 timeframes: str = "1h"):
         self.client = client
         self.symbol = symbol
         self.side = side
@@ -30,6 +31,7 @@ class Position:
         self.exit_type = None
         self.expire_sec = expire_sec
         self.tick = tick
+        self.timeframes = timeframes
         self.strategy = strategy
 
     async def _current_price(self) -> float:
@@ -138,7 +140,8 @@ class PositionManager:
                             leverage: int,
                             sl_pct: float,
                             tp_pct: float,
-                            expire_sec: int) -> bool:
+                            expire_sec: int,
+                            timeframes: str) -> bool:
         key = (symbol, strategy_name)
         if key in self.open_positions:
             return False
@@ -209,10 +212,10 @@ class PositionManager:
         except BinanceAPIException as e:
             log.warning("%s TP emri hatası: %s", symbol, e)
 
-        pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time(), tick, strategy=strategy_name, expire_sec=expire_sec)
+        pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time(), tick, strategy=strategy_name, expire_sec=expire_sec, timeframes=timeframes)
         self.open_positions[key] = pos
-        log.info("%s [%s] pozisyon açıldı: miktar=%.4f, SL=%.8f, TP=%.8f",
-                 symbol, strategy_name, qty, price_sl, price_tp)
+        log.info("%s [%s] [%s] pozisyon açıldı: miktar=%.4f, SL=%.8f, TP=%.8f",
+                 symbol, strategy_name,timeframes, qty, price_sl, price_tp)
         return True
 
 
