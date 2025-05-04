@@ -3,12 +3,13 @@ debug: true
 risk_pct: 16.0          # toplam bakiyenin %16’sı işleme ayrılır
 base_usdt_per_trade: 10
 max_concurrent: 5
-
+#global history limit eğer bir değer girilmezse bu değer geçerli olur.
+history_limit: 250
 default_params:
   leverage:      4
   sl_pct:        3.0
   tp_pct:        6.0
-  history_limit: 250
+
   expire_sec:    300
 
 strategies:
@@ -18,6 +19,7 @@ strategies:
     params:
       atr_period: [12, 10]       # 1m ve 15m için aynı değer tekrarlandı
       multiplier: [3.0, 5.0]
+      history_limit: [50,60]    #doğrudan fonksiyonun içerisinde kullanılmaz.
     overrides:
       leverage: [5, 5]
       sl_pct:   [2.0, 4.0]

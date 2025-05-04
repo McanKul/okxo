@@ -1,10 +1,10 @@
 # live/streamer.py  – SOLID refactor: sembol çözümleme + geçmiş veri yükleme buraya taşındı
 import asyncio
-
+from utils.interfaces import IStreamer
 from binance import BinanceSocketManager
 from utils.logger import setup_logger
 log = setup_logger("Streamer")
-class Streamer:
+class Streamer(IStreamer):
     """
     Verilen semboller ve zaman dilimleri için asenkron kline verisi yayınlar
     + sembol çözümleme ve geçmiş veri ön‑yükleme yardımcıları.

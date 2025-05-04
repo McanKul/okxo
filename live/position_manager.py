@@ -7,7 +7,7 @@ from binance.enums import *
 from binance import AsyncClient  # sadece tip bildirimi için
 from utils.logger import setup_logger
 log = setup_logger("PositionManager")
-
+from utils.interfaces import IBroker
 class Position:
     
     def __init__(self, client: AsyncClient, symbol: str, side: str,
@@ -96,15 +96,13 @@ class Position:
 
 class PositionManager:
     
-    def __init__(self,
-                 client: AsyncClient,
-                 base_capital: float = 10.0,
-                 max_concurrent: int = 1):
-        self.client = client
+    def __init__(self, broker: IBroker, base_capital: float = 10.0, max_concurrent: int = 1):
+        self.broker = broker
+        self.client = broker.client  # hala lazım
         self.base_cap = base_capital
         
         self.max_open = max_concurrent
-        self.open_positions = {}  # key: (symbol, strategy)
+        self.open_positions = {}
         self.history = []
 
     def round_price(self, raw, tick, up=False):
@@ -133,19 +131,9 @@ class PositionManager:
             log.error("LOT_SIZE ve PRICE_FILTER alınamadı %s: %s", symbol, e)
         return 0.0, 0.0
 
-    async def open_position(self,
-                            symbol: str,
-                            side: int,
-                            strategy_name: str,
-                            leverage: int,
-                            sl_pct: float,
-                            tp_pct: float,
-                            expire_sec: int,
-                            timeframes: str) -> bool:
+    async def open_position(self, symbol: str, side: int, strategy_name: str, leverage: int, sl_pct: float, tp_pct: float, expire_sec: int, timeframes: str):
         key = (symbol, strategy_name)
-        if key in self.open_positions:
-            return False
-        if len(self.open_positions) >= self.max_open:
+        if key in self.open_positions or len(self.open_positions) >= self.max_open:
             return False
 
         mark_price = float((await self.client.futures_mark_price(symbol=symbol))["markPrice"])
@@ -160,16 +148,10 @@ class PositionManager:
 
         
         try:
-            await self.client.futures_change_margin_type(symbol=symbol, marginType="ISOLATED")
-        except BinanceAPIException as e:
-        
-            if e.code != -4046:
-                log.error("%s marj tipi ayarlanamadı: %s", symbol, e)
-                return False
-        try:
-            await self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
-        except BinanceAPIException as e:
-            log.error("%s kaldıraç ayarlanamadı: %s", symbol, e)
+            await self.broker.ensure_isolated_margin(symbol)
+            await self.broker.set_leverage(symbol, leverage)
+        except Exception as e:
+            log.error("%s kaldıraç / margin ayarlanamadı: %s", symbol, e)
             return False
 
         raw_sl = mark_price * (1 - sl_pct/leverage / 100) if side_str == SIDE_BUY else mark_price * (1 + sl_pct/leverage / 100)
@@ -179,72 +161,70 @@ class PositionManager:
         price_tp = self.round_price(raw_tp, tick, up=(side_str == SIDE_BUY))
 
         
-        try:
-            await self.client.futures_create_order(
-                symbol=symbol,
-                side=side_str,
-                type=FUTURE_ORDER_TYPE_MARKET,
-                quantity=f"{qty:.{abs(int(math.log10(tick)))}f}"
-            )
-        except BinanceAPIException as e:
-            log.error("%s piyasa emri hatası: %s", symbol, e)
-            return False
-
+        await self.broker.market_order(symbol, side_str, qty)
         
-        try:
-            await self.client.futures_create_order(
-                symbol=symbol,
-                side=opp_str,
-                type=FUTURE_ORDER_TYPE_STOP_MARKET,
-                stopPrice=f"{price_sl:.{abs(int(math.log10(tick)))}f}",
-                closePosition=True
-            )
-        except BinanceAPIException as e:
-            log.warning("%s SL emri hatası: %s", symbol, e)
-        try:
-            await self.client.futures_create_order(
-                symbol=symbol,
-                side=opp_str,
-                type=FUTURE_ORDER_TYPE_TAKE_PROFIT_MARKET,
-                stopPrice=f"{price_tp:.{abs(int(math.log10(tick)))}f}",
-                closePosition=True
-            )
-        except BinanceAPIException as e:
-            log.warning("%s TP emri hatası: %s", symbol, e)
+        await self.broker.place_stop_market(symbol, opp_str, price_sl)
+        await self.broker.place_take_profit(symbol, opp_str, price_tp)
 
         pos = Position(self.client, symbol, side_str, qty, mark_price, price_sl, price_tp, time.time(), tick, strategy=strategy_name, expire_sec=expire_sec, timeframes=timeframes)
         self.open_positions[key] = pos
         log.info("%s [%s] [%s] pozisyon açıldı: miktar=%.4f, SL=%.8f, TP=%.8f",
                  symbol, strategy_name,timeframes, qty, price_sl, price_tp)
         return True
-
-
-
     
-    async def update_all(self):
         
+    async def update_all(self):
         now = time.time()
-        to_remove = []
-        for key, pos in list(self.open_positions.items()):
+        closed = []
+
+        for key, pos in self.open_positions.items():
+            symbol, strategy_name = key
+
             try:
-                closed = await pos.check_exit(now, max_holding_sec=pos.expire_sec)
+                mark_price = await self.broker.get_mark_price(symbol)
             except Exception as e:
-                log.error("Pozisyon kontrol hatası %s: %s", key, e)
+                log.warning("%s mark fiyat alınamadı: %s", symbol, e)
                 continue
-            if closed:
-                self.history.append(pos)
-                to_remove.append(key)
-        for key in to_remove:
-            del self.open_positions[key]
+
+            hit_tp = pos.side == 1 and mark_price >= pos.tp or pos.side == -1 and mark_price <= pos.tp
+            hit_sl = pos.side == 1 and mark_price <= pos.sl or pos.side == -1 and mark_price >= pos.sl
+            expired = now >= pos.expire
+
+            if hit_tp:
+                log.info("%s TP tetiklendi (%.2f)", symbol, mark_price)
+            elif hit_sl:
+                log.info("%s SL tetiklendi (%.2f)", symbol, mark_price)
+            elif expired:
+                log.info("%s pozisyon süresi doldu", symbol)
+            else:
+                continue
+
+            await self.broker.close_position(symbol)
+            closed.append(key)
+
+            for key in closed:
+                del self.open_positions[key]
+
 
     async def force_close_all(self):
+        to_remove = []
+
         for key, pos in list(self.open_positions.items()):
+            symbol, _ = key
             try:
-                await pos._close_market()
-            except Exception:
-                pass
+                await self.broker.close_position(symbol)
+            except Exception as e:
+                log.warning("%s pozisyon manuel kapanamadı: %s", symbol, e)
+            else:
+                log.info("%s pozisyon manuel olarak kapatıldı.", symbol)
+
             pos.closed = True
             pos.exit_type = "MANUAL"
             self.history.append(pos)
+            to_remove.append(key)
+
+        for key in to_remove:
             del self.open_positions[key]
+
         log.info("Tüm pozisyonlar manuel olarak kapatıldı.")
+        

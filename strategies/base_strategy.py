@@ -6,17 +6,17 @@ alt sınıfını örnekler.
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections import defaultdict
 from typing import Dict, List, Optional
-
+from utils.interfaces import IStrategy
 import numpy as np
 import pandas as pd
 import talib
 
 
 # ---------------------------------------------------------------------------
-class BaseStrategy(ABC):
+class BaseStrategy(IStrategy):
     """Canlı WebSocket + Backtest hibrit arayüz."""
 
     def __init__(self, **params):

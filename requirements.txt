@@ -3,3 +3,4 @@ python-dotenv
 numpy
 ta-lib
 requests
+pytest
