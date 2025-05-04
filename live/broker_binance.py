@@ -6,12 +6,8 @@ import os, logging, math
 class BinanceBroker:
     """En yalın emir / bakiye sarmalayıcı."""
 
-    def __init__(self, api_key: str|None = None, api_secret: str|None = None):
-        self.client = Client(
-            api_key or os.getenv("API_KEY"),
-            api_secret or os.getenv("API_SECRET"),
-            {"timeout": 50}
-        )
+    def __init__(self, client):
+        self.client = client
 
     # ------------ basic helpers -----------------
     def balance(self, asset="USDT") -> float:

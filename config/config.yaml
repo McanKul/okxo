@@ -1,29 +1,24 @@
-mode              : LIVE
-data_csv          : data/BTC_1hour.csv
-coins             : ALL_USDT
-max_concurrent    : 5
-risk_pct          : 16.0        # işlemlerde sermayenin %1’i
-debug             : TRUE
+mode: LIVE
+debug: true
+risk_pct: 16.0          # toplam bakiyenin %16’sı işleme ayrılır
 base_usdt_per_trade: 10
+max_concurrent: 5
 
 default_params:
-  leverage          : 4
-  sl_pct            : 3.0
-  tp_pct            : 6.0
-  history_limit     : 50           # geçmiş mumlar
-  commission_pct : 0.04            # back-testte kullan
-  slippage_pct   : 0.01
-  expire_sec     : 720
+  leverage:      4
+  sl_pct:        3.0
+  tp_pct:        6.0
+  history_limit: 250
+  expire_sec:    300
 
 strategies:
   - name: super_trend
+    coins: ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
     timeframes: ["1m", "15m"]
     params:
-      atr_period: 12
-      multiplier: 3.0
+      atr_period: [12, 10]       # 1m ve 15m için aynı değer tekrarlandı
+      multiplier: [3.0, 5.0]
     overrides:
-      leverage : 5
-      sl_pct   : 2.0
-      tp_pct   : 4.0
-
-
+      leverage: [5, 5]
+      sl_pct:   [2.0, 4.0]
+      tp_pct:   [4.0, 1.0]

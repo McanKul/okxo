@@ -19,13 +19,14 @@ class LiveEngine:
         self.client = client
 
         # Tüm stratejileri yükle ve parametreleri sakla
-        self.strategies = []  # her biri: {name, instance, timeframes, params}
+        self.strategies = []  # her biri: {name, instance, timeframe, params}
         for strat_cfg in cfg.get_strategies():
             instance = load_strategy(strat_cfg)
             self.strategies.append({
                 "name": strat_cfg["name"],
                 "instance": instance,
-                "timeframes": strat_cfg.get("timeframes", ["1h"]),
+                "coins": strat_cfg.get("coins", []),
+                "timeframe": strat_cfg.get("timeframe", ["1h"]),
                 "params": strat_cfg.get("effective_params", {})
             })
 
@@ -37,8 +38,7 @@ class LiveEngine:
         )
 
         self.symbols = []
-        # Abone olunacak tüm zaman dilimleri (benzersiz)
-        self.timeframes = sorted({tf for s in self.strategies for tf in s["timeframes"]})
+        self.timeframes = [s["timeframe"] for s in self.strategies]
 
     async def _resolve_symbols(self):
         
@@ -74,7 +74,7 @@ class LiveEngine:
                                               "i": tf}}
                     # Her strateji, ilgili timeframe için bar güncellemesi
                     for strat in self.strategies:
-                        if tf in strat["timeframes"]:
+                        if tf in strat["timeframe"]:
                             strat["instance"].update_bar(sym, bar)
 
     async def run(self):
@@ -107,10 +107,11 @@ class LiveEngine:
                 tf = k.get("i")
                 if not sym or not k or not tf:
                     continue
-
+                
                 # Strateji bazlı sinyal üretimi
                 for strat in self.strategies:
-                    if tf not in strat["timeframes"]:
+                    print(strat)
+                    if tf not in strat["timeframe"] or (sym not in strat["coins"] and "ALL_USDT" not in strat["coins"]):
                         continue
                     try:
                         strat["instance"].update_bar(sym, bar)
