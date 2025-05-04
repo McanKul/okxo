@@ -17,38 +17,45 @@ def _discover():
         if f.name in _IGNORE:
             continue
         name = f.stem
-        mod  = importlib.import_module(f"strategies.{name}")
-        mods[name] = mod
+        mods[name] = importlib.import_module(f"strategies.{name}")
     return mods
 
 # Keşfet ve modül sözlüğünü önbelleğe al
 _STRAT_MODULES = _discover()
 
-def load_strategy(cfg_entry: dict):
+# ────────────────────────────────────────────────────────────────────────────
+def load_strategy(cfg_entry: dict, *, bar_store, symbol: str, timeframe: str):
     """
-    cfg_entry: config_loader tarafından sağlanan yapı
+    cfg_entry: ConfigLoader.get_strategies() çıktısındaki bir eleman
         {
-          name: rsi_threshold_strategy,
-          params: { ... },
-          timeframes: [ ... ],
-          effective_params: { sl_pct, tp_pct, leverage, ... }
+          "name": "super_trend",
+          "params": {...},
+          "effective_params": {...},
+          ...
         }
 
-    Dönüş → Strategy sınıfı (örnek)
+    bar_store : merkezi BarStore nesnesi
+    symbol    : "BTCUSDT" vb.
+    timeframe : "1m", "15m" vb.
+
+    Dönüş  → Strategy sınıfından örnek (IStrategy)
     """
-    name = cfg_entry["name"]
-    params = cfg_entry.get("params", {})
-    runtime = cfg_entry.get("effective_params", {})
+    name       = cfg_entry["name"]
+    tech_param = cfg_entry.get("params", {})
+    runtime    = cfg_entry.get("effective_params", {})
 
     if name not in _STRAT_MODULES:
         raise ValueError(f"Strateji bulunamadı: {name}")
 
     mod = _STRAT_MODULES[name]
-
-
+    
     if not hasattr(mod, "Strategy"):
         raise AttributeError(f"{name}.py içinde Strategy sınıfı tanımlı değil.")
 
-    # param + effective_param birleşimi → kwargs olarak Strategy'e geç
-    merged_params = {**runtime, **params}
-    return mod.Strategy(**merged_params)
+    # Teknik + runtime parametrelerini birleştir
+    kwargs = {**runtime, **tech_param,
+              "bar_store": bar_store,
+              "symbol":    symbol,
+              "timeframe": timeframe}
+
+    return mod.Strategy(**kwargs)

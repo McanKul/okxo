@@ -1,5 +1,6 @@
 # live/streamer.py  – SOLID refactor: sembol çözümleme + geçmiş veri yükleme buraya taşındı
 import asyncio
+from utils.bar_store import BarStore
 from utils.interfaces import IStreamer
 from binance import BinanceSocketManager
 from utils.logger import setup_logger
@@ -9,13 +10,14 @@ class Streamer(IStreamer):
     Verilen semboller ve zaman dilimleri için asenkron kline verisi yayınlar
     + sembol çözümleme ve geçmiş veri ön‑yükleme yardımcıları.
     """
-    def __init__(self, client, symbols, intervals):
+    def __init__(self, client, symbols, intervals, bar_store: BarStore):
         self.client = client
         self.symbols = [s.replace("/", "").upper() for s in symbols]
         self.intervals = intervals if isinstance(intervals, (list, tuple)) else [intervals]
         self.queue = asyncio.Queue()
         self.bsm = BinanceSocketManager(self.client)
         self.tasks = []
+        self.bar_store = bar_store
 
     # ---------- Yardımcı statik metotlar ----------
     @staticmethod
@@ -35,35 +37,24 @@ class Streamer(IStreamer):
                 for sym in coins_spec
                 if isinstance(sym, str)]
 
-    @staticmethod
-    async def preload_history(client, symbols, intervals, strategies, global_limit=250):
+    async def preload_history(self, symbols, intervals, global_limit=250):
         for tf in intervals:
             for sym in symbols:
-                for strat in strategies:
-                    if tf != strat["timeframe"]:  # sadece o timeframe ile eşleşen strateji
-                        continue
+                try:
+                    klines = await self.client.futures_klines(
+                                symbol=sym, interval=tf, limit=global_limit)
+                except Exception as e:
+                    log.warning("%s | %s preload hatası: %s", sym, tf, e)
+                    continue
 
-                    try:
-                        limit = strat["params"].get("history_limit", global_limit)
-                        klines = await client.futures_klines(symbol=sym, interval=tf, limit=limit)
-                    except Exception as e:
-                        log.warning("%s | %s preload hatası: %s (%r)", sym, tf, str(e), e)
-                        continue
+                for k in klines:
+                    k_dict = {
+                        "t": k[0], "T": k[6], "o": k[1], "h": k[2],
+                        "l": k[3], "c": k[4], "v": k[5], "x": True, "i": tf
+                    }
+                    self.bar_store.add_bar(sym, tf, k_dict)
 
-                    for k in klines:
-                        bar = {
-                            "s": sym,
-                            "k": {
-                                "t": k[0], "T": k[6],
-                                "o": k[1], "h": k[2],
-                                "l": k[3], "c": k[4],
-                                "v": k[5], "n": k[8],
-                                "x": True, "i": tf
-                            }
-                        }
-                        strat["instance"].update_bar(sym, bar)
-
-                    log.info("Preloaded %s × %s bars (%s)", sym, limit, tf)
+                log.info("Preloaded %s × %s bars (%s)", sym, len(klines), tf)
     # ---------- Dahili akış ----------
     async def _stream_multiplex(self, streams):
         try:
@@ -84,7 +75,8 @@ class Streamer(IStreamer):
                 data = msg.get("data", {})
                 k = data.get("k", {})
                 if k and k.get("x"):          # sadece kapanan mum
-                    await self.queue.put({"s": data.get("s"), "k": k})
+                    self.bar_store.add_bar(data["s"], k["i"], k)    # merkez tampona yaz
+                    await self.queue.put({"s": data["s"], "k": k})  # strateji tetiklenmesi için
 
     # ---------- Dış API ----------
     async def start(self):
@@ -99,7 +91,9 @@ class Streamer(IStreamer):
             self.tasks.append(asyncio.create_task(self._stream_multiplex(chunk)))
 
         log.info("Streamer başladı: %s sembol – %s tf", len(self.symbols), self.intervals)
-
+    def get_queue(self) -> asyncio.Queue:
+        return self.queue
+    
     async def get(self):
         
         return await self.queue.get()

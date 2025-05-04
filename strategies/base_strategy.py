@@ -15,60 +15,36 @@ import pandas as pd
 import talib
 
 
-# ---------------------------------------------------------------------------
+
 class BaseStrategy(IStrategy):
-    """Canlı WebSocket + Backtest hibrit arayüz."""
+    def __init__(self, bar_store, symbol, timeframe, **params):
+        self.bar_store = bar_store      # <–– merkezi tampon
+        self.symbol     = symbol
+        self.tf         = timeframe
+        self.params     = params
+        self._sl_pct    = params.get("sl_pct", 3.0)
 
-    def __init__(self, **params):
-        self.params = params
-        # sembole özgü tamponlar (OHLCV dizileri)
-        self._buf: Dict[str, Dict[str, List[float]]] = defaultdict(
-            lambda: {"open": [], "high": [], "low": [], "close": [], "volume": []}
-        )
-        # backtest için: SL yüzdesi (kaldıraç öncesi)
-        self._sl_pct: float = params.get("sl_pct", 3.0)
+    # artık kendi _buf’u yok!
 
-    # ........................................................ live API .....
+    # ........................................................ live API
     def update_bar(self, symbol: str, bar: dict) -> None:
-        """Binance kline JSON → kapanan mumu diziye ekler."""
-        k = bar["k"]
-        if not k["x"]:  # mum kapanmadı
-            return
-        buf = self._buf[symbol]
-        buf["open"].append(float(k["o"]))
-        buf["high"].append(float(k["h"]))
-        buf["low"].append(float(k["l"]))
-        buf["close"].append(float(k["c"]))
-        buf["volume"].append(float(k["v"]))
-        # buffer uzunluğunu sınırlı tut
-        maxlen = 600
-        for arr in buf.values():
-            if len(arr) > maxlen:
-                del arr[: len(arr) - maxlen]
+        # bu metot merkezi tamponu dolduracak şekilde güncellenmez;
+        # çünkü Streamer doğrudan BarStore.add_bar() çağıracak.
+        pass  # BaseStrategy bu işi yapmaz
 
-    @abstractmethod
-    def _live_signal(self, o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray, v: np.ndarray) -> Optional[str]:
-        """+1 / -1 / None"""
-
-    def generate_signal(self, symbol: str) -> Optional[str]:
-        buf = self._buf.get(symbol)
-        if not buf or len(buf["close"]) < 2:
+    def generate_signal(self, _sym: str = None) -> Optional[str]:
+        buf = self.bar_store.get_ohlcv(self.symbol, self.tf)
+        if len(buf["close"]) < 2:
             return None
-        o = np.asarray(buf["open"], dtype=float)
-        h = np.asarray(buf["high"], dtype=float)
-        l = np.asarray(buf["low"], dtype=float)
+        import numpy as np
         c = np.asarray(buf["close"], dtype=float)
-        v = np.asarray(buf["volume"], dtype=float)
+        h = np.asarray(buf["high"],  dtype=float)
+        l = np.asarray(buf["low"],   dtype=float)
+        o = np.asarray(buf["open"],  dtype=float)
+        v = np.asarray(buf["volume"],dtype=float)
+       
         return self._live_signal(o, h, l, c, v)
-
-    # ........................................................ back‑test ....
-    @staticmethod
-    @abstractmethod
-    def generate_signals(df: pd.DataFrame) -> pd.Series:
-        """Vektörleştirilmiş +1/0/-1 sinyal serisi döndürür."""
-
-    # ........................................................ yardımcı .....
-    def sl_pct(self) -> float:  # Engine, risk hesap için kullanır
+    
+    def sl_pct(self) -> float:          # artık soyut değil
         return self._sl_pct
-
-
+    

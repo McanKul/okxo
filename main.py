@@ -1,5 +1,6 @@
 # main.py - Ticaret botu giriş noktası (LIVE veya BACKTEST modu).
 import asyncio
+from live.broker_binance import BinanceBroker
 from utils.logger import setup_logger
 import sys
 import logging
@@ -93,8 +94,8 @@ async def async_main():
             except Exception as e:
                 log.error("Hesap bilgisi alınamadı: %s", e)
 
-        # Canlı alım-satım motorunu çalıştır
-        engine = LiveEngine(cfg, client)
+        broker = BinanceBroker(client)            # ← sarmalayıcı
+        engine = LiveEngine(cfg, broker)
         try:
             await engine.run()
         except Exception as e:
