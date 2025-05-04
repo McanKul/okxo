@@ -4,9 +4,9 @@ Her sembol & timeframe için son N kapanmış mum REST ile çekilir ve
 strategy.update_bar() aracılığıyla tamponlar hemen doldurulur.
 """
 from binance.client import Client
-import os, logging, time, math
-
-log = logging.getLogger("Bootstrap")
+import time, math
+from utils.logger import setup_logger
+log = setup_logger("Bootstrap")
 
 async def preload_history(client: Client, strategy, symbols, interval="1m", limit=250):
     """Websocket başlamadan önce geçmiş mumları tamponlara işler."""

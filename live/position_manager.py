@@ -1,12 +1,12 @@
 # position_manager.py - Asenkron vadeli işlem pozisyonlarını yönetir.
 import math
 import time
-import logging
+
 from binance.exceptions import BinanceAPIException
 from binance.enums import *
 from binance import AsyncClient  # sadece tip bildirimi için
-
-log = logging.getLogger("PositionManager")
+from utils.logger import setup_logger
+log = setup_logger("PositionManager")
 
 class Position:
     

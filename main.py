@@ -1,17 +1,17 @@
 # main.py - Ticaret botu giriş noktası (LIVE veya BACKTEST modu).
 import asyncio
-import logging
+from utils.logger import setup_logger
 import sys
-import os
+import logging
+
 from pathlib import Path
-from dotenv import load_dotenv
-import yaml
+
 
 from binance import AsyncClient
 from live.live_engine import LiveEngine
 from utils.config_loaders import ConfigLoader
 
-async def run_backtest(cfg):
+async def run_backtest(cfg,log):
     """
     Backtest'i yürütür (Executor içinde, event loop'u bloklamamak için).
     """
@@ -33,7 +33,7 @@ async def run_backtest(cfg):
             pair = f"{sym.replace('USDT', '')}/USDT"
             df = DataFetcher().fetch_ohlcv(pair, tf)
         except Exception as e:
-            logging.error("Backtest için veri alınamadı: %s", e)
+            log.error("Backtest için veri alınamadı: %s", e)
             return None
 
     strategy = load_strategy(strat_cfg)
@@ -49,18 +49,17 @@ async def async_main():
     ENV_PATH = ROOT / "config" / ".env"
     try:
         cfg = ConfigLoader(CONFIG_PATH,ENV_PATH)
+        log = setup_logger("Main", level=logging.DEBUG if cfg.get_debug() else logging.INFO)
+
     except FileNotFoundError as e:
         sys.exit(f"⚠ Yapılandırma dosyası bulunamadı: {e}")
 
-    logging.basicConfig(
-        level=logging.INFO if cfg.get_debug() else logging.WARNING,
-        format="%(asctime)s %(levelname)s: %(message)s"
-    )
+
 
     mode = cfg.get_mode().upper()
 
     if mode == "BACKTEST":
-        result = await run_backtest(cfg)
+        result = await run_backtest(cfg,log)
         if result:
             print("Final bakiye:", result.get("final_balance", "N/A"))
 
@@ -89,17 +88,17 @@ async def async_main():
                 risk_pct = cfg.get_risk_pct() / 100.0
                 base_usdt = usdt_balance * risk_pct
                 # Güncellenen temel işlem tutarını config'e yaz
-                logging.info("Risk yüzdesi kullanıldı: Hesap bakiyesi=%.2f, risk_pct=%.2f%%, işlem başına USDT=%.2f",
+                log.info("Risk yüzdesi kullanıldı: Hesap bakiyesi=%.2f, risk_pct=%.2f%%, işlem başına USDT=%.2f",
                              usdt_balance, cfg.get_risk_pct(), base_usdt)
             except Exception as e:
-                logging.error("Hesap bilgisi alınamadı: %s", e)
+                log.error("Hesap bilgisi alınamadı: %s", e)
 
         # Canlı alım-satım motorunu çalıştır
         engine = LiveEngine(cfg, client)
         try:
             await engine.run()
         except Exception as e:
-            logging.error("LiveEngine çalışırken hata: %s", e)
+            log.error("LiveEngine çalışırken hata: %s", e)
         finally:
             await client.close_connection()
 
