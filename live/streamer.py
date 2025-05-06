@@ -1,109 +1,116 @@
-# live/streamer.py  – SOLID refactor: sembol çözümleme + geçmiş veri yükleme buraya taşındı
-import asyncio
+# live/streamer.py
+import asyncio, time
+from collections import defaultdict
 from utils.bar_store import BarStore
+from utils.logger import setup_logger
 from utils.interfaces import IStreamer
 from binance import BinanceSocketManager
-from utils.logger import setup_logger
+
 log = setup_logger("Streamer")
+
+TF_SEC = {"1m":60, "5m":300, "15m":900, "30m":1800,
+          "1h":3600, "2h":7200, "4h":14400,
+          "6h":21600, "8h":28800, "12h":43200}
+
 class Streamer(IStreamer):
-    """
-    Verilen semboller ve zaman dilimleri için asenkron kline verisi yayınlar
-    + sembol çözümleme ve geçmiş veri ön‑yükleme yardımcıları.
-    """
+    
     def __init__(self, client, symbols, intervals, bar_store: BarStore):
-        self.client = client
-        self.symbols = [s.replace("/", "").upper() for s in symbols]
-        self.intervals = intervals if isinstance(intervals, (list, tuple)) else [intervals]
-        self.queue = asyncio.Queue()
-        self.bsm = BinanceSocketManager(self.client)
-        self.tasks = []
-        self.bar_store = bar_store
+        self.client   = client
+        self.symbols  = [s.upper().replace("/","") for s in symbols]
+        self.intervals= intervals
+        self.bar_store= bar_store
+        self.queue    = asyncio.Queue()
+        self.bsm      = BinanceSocketManager(self.client)
 
-    # ---------- Yardımcı statik metotlar ----------
-    @staticmethod
-    async def resolve_symbols(client, coins_spec):
-        """
-        coins_spec:  ["BTCUSDT","ETHUSDT"]  veya  "ALL_USDT"
-        """
-        if coins_spec == "ALL_USDT":
-            try:
-                info = await client.futures_exchange_info()
-                return [s['symbol'] for s in info['symbols']
-                        if s['quoteAsset'] == "USDT" and s['status'] == "TRADING"]
-            except Exception as e:
-                log.error("Exchange info alınamadı: %s", e)
-                return []
-        return [sym.replace("/", "").upper()
-                for sym in coins_spec
-                if isinstance(sym, str)]
+        # partial bar tamponu
+        self.partial = defaultdict(
+            lambda: {"o":None,"h":0,"l":1e18,"c":None,
+                     "v":0,"start":None,"i":None,"x":False}
+        )
 
+    # -----------------------------------------------------------------
     async def preload_history(self, symbols, intervals, global_limit=250):
         for tf in intervals:
             for sym in symbols:
                 try:
-                    klines = await self.client.futures_klines(
-                                symbol=sym, interval=tf, limit=global_limit)
+                    kl = await self.client.futures_klines(symbol=sym,
+                                                         interval=tf,
+                                                         limit=global_limit)
                 except Exception as e:
-                    log.warning("%s | %s preload hatası: %s", sym, tf, e)
-                    continue
+                    log.warning("%s %s preload hata: %s", sym, tf, e); continue
+                for k in kl:
+                    self.bar_store.add_bar(sym, tf, {
+                        "t":k[0],"T":k[6],"o":k[1],"h":k[2],
+                        "l":k[3],"c":k[4],"v":k[5],
+                        "x":True,"i":tf})
+                log.info("Preloaded %s × %s bars (%s)", sym, len(kl), tf)
 
-                for k in klines:
-                    k_dict = {
-                        "t": k[0], "T": k[6], "o": k[1], "h": k[2],
-                        "l": k[3], "c": k[4], "v": k[5], "x": True, "i": tf
-                    }
-                    self.bar_store.add_bar(sym, tf, k_dict)
+    # -----------------------------------------------------------------
+    async def _stream_aggregate(self):
+        sock = self.bsm.futures_socket(path="!miniTicker@arr")
+        async with sock as stream:
+            async for arr in stream:
+                ts = int(arr[0]["E"]//1000)
+                for t in arr:
+                    sym = t["s"]
+                    if sym not in self.symbols: continue
+                    self._update_partial(sym, float(t["c"]),
+                                         float(t["q"]), ts)
 
-                log.info("Preloaded %s × %s bars (%s)", sym, len(klines), tf)
-    # ---------- Dahili akış ----------
-    async def _stream_multiplex(self, streams):
-        try:
-            socket = self.bsm.futures_multiplex_socket(streams)
-        except Exception as e:
-            log.error("Multiplex soket açılamadı: %s", e)
-            return
+    def _update_partial(self, sym, price, vol, ts):
+        for tf in self.intervals:
+            bucket = ts - ts % TF_SEC[tf]
+            buf = self.partial[(sym, tf)]
+            if buf["start"] != bucket:          # bar kapanıyor
+                if buf["start"] is not None:    # eski barı kapat
+                    buf["x"] = True
+                    self.bar_store.add_bar(sym, tf, buf.copy())
+                    asyncio.create_task(
+                        self.queue.put({"s":sym, "k":buf.copy()}))
+                buf.update(o=price,h=price,l=price,c=price,
+                           v=vol,start=bucket,i=tf,x=False)
+            else:                               # bar açık
+                buf["c"] = price
+                buf["h"] = max(buf["h"], price)
+                buf["l"] = min(buf["l"], price)
+                buf["v"] += vol
 
-        async with socket as stream:
-            while True:
-                try:
-                    msg = await stream.recv()
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    log.error("Veri akışı hatası: %s", e)
-                    break
-                data = msg.get("data", {})
-                k = data.get("k", {})
-                if k and k.get("x"):          # sadece kapanan mum
-                    self.bar_store.add_bar(data["s"], k["i"], k)    # merkez tampona yaz
-                    await self.queue.put({"s": data["s"], "k": k})  # strateji tetiklenmesi için
-
-    # ---------- Dış API ----------
+    # -----------------------------------------------------------------
     async def start(self):
-        streams = [f"{sym.lower()}@kline_{tf}"
-                   for sym in self.symbols
-                   for tf in self.intervals]
-
-        
-        max_per_stream = 50
-        for i in range(0, len(streams), max_per_stream):
-            chunk = streams[i:i + max_per_stream]
-            self.tasks.append(asyncio.create_task(self._stream_multiplex(chunk)))
-
-        log.info("Streamer başladı: %s sembol – %s tf", len(self.symbols), self.intervals)
-    def get_queue(self) -> asyncio.Queue:
-        return self.queue
-    
-    async def get(self):
-        
-        return await self.queue.get()
+        self.task = asyncio.create_task(self._stream_aggregate())
+        log.info("Aggregate miniTicker stream açıldı – %s sembol | tf=%s",
+                 len(self.symbols), self.intervals)
 
     async def stop(self):
-        for t in self.tasks:
-            t.cancel()
-        await asyncio.gather(*self.tasks, return_exceptions=True)
-        try:
-            await self.client.close_connection()
-        except Exception:
-            pass
+        self.task.cancel()
+        await asyncio.gather(self.task, return_exceptions=True)
+        await self.client.close_connection()
         log.info("Streamer durduruldu.")
+
+    # IStreamer interface
+    def get_queue(self): return self.queue
+    async def get(self):  return await self.queue.get()
+
+    # -----------------------------------------------------------------
+    @staticmethod
+    async def resolve_symbols(client, coins_spec):
+        """
+        coins_spec  ->  ["BTCUSDT", ...]   veya   "ALL_USDT"   veya ["ALL_USDT"]
+        """
+        # 1) Liste ama tek elemanı ALL_USDT ise —> toplu mod
+        if isinstance(coins_spec, (list, tuple)) and len(coins_spec) == 1 \
+        and coins_spec[0].upper() == "ALL_USDT":
+            coins_spec = "ALL_USDT"
+
+        if coins_spec == "ALL_USDT":
+            try:
+                info = await client.futures_exchange_info()
+                return [s["symbol"] for s in info["symbols"]
+                        if s["quoteAsset"] == "USDT" and s["status"] == "TRADING"]
+            except Exception as e:
+                log.error("Exchange info alınamadı: %s", e)
+                return []
+
+        # 2) Normal liste yolu
+        return [sym.upper().replace("/", "")
+                for sym in coins_spec if isinstance(sym, str)]

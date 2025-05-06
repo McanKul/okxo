@@ -1,50 +1,64 @@
-"""strategies/enhanced_strategies.py
-
-Tamamen vektörleştirilmiş, TA‑Lib tabanlı **yüksek performanslı** strateji koleksiyonu.
-
-alt sınıfını örnekler.
-"""
 from __future__ import annotations
-
-from abc import abstractmethod
-from collections import defaultdict
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
-from utils.interfaces import IStrategy
 import numpy as np
 import pandas as pd
-import talib
-
-
+from utils.bar_store import BarStore
+from utils.interfaces import IStrategy
 
 class BaseStrategy(IStrategy):
-    def __init__(self, bar_store, symbol, timeframe, **params):
-        self.bar_store = bar_store      # <–– merkezi tampon
-        self.symbol     = symbol
-        self.tf         = timeframe
-        self.params     = params
-        self._sl_pct    = params.get("sl_pct", 3.0)
+    """
+    BarStore‑tabanlı ortak strateji sınıfı.
+    Her strateji tek sembol + tek timeframe için örneklenir.
+    """
 
-    # artık kendi _buf’u yok!
-
-    # ........................................................ live API
+    def __init__(
+        self,
+        bar_store: BarStore,
+        symbol: str,
+        timeframe: str,
+        sl_pct: float = 3.0,
+        **params,
+    ):
+        self.bar_store = bar_store
+        self.symbol    = symbol
+        self.tf        = timeframe
+        self._sl_pct   = sl_pct
+        self.params    = params          # ATR vb. teknik parametreler
+        
     def update_bar(self, symbol: str, bar: dict) -> None:
-        # bu metot merkezi tamponu dolduracak şekilde güncellenmez;
-        # çünkü Streamer doğrudan BarStore.add_bar() çağıracak.
-        pass  # BaseStrategy bu işi yapmaz
+        return
+    # ------------- CANLI API -------------
+    @abstractmethod
+    def _live_signal(
+        self,
+        o: np.ndarray,
+        h: np.ndarray,
+        l: np.ndarray,
+        c: np.ndarray,
+        v: np.ndarray,
+    ) -> Optional[str]:
+        """"+1" | "-1" | None"""
 
     def generate_signal(self, _sym: str = None) -> Optional[str]:
         buf = self.bar_store.get_ohlcv(self.symbol, self.tf)
         if len(buf["close"]) < 2:
             return None
-        import numpy as np
-        c = np.asarray(buf["close"], dtype=float)
-        h = np.asarray(buf["high"],  dtype=float)
-        l = np.asarray(buf["low"],   dtype=float)
-        o = np.asarray(buf["open"],  dtype=float)
-        v = np.asarray(buf["volume"],dtype=float)
-       
+
+        o = np.asarray(buf["open"],   dtype=float)
+        h = np.asarray(buf["high"],   dtype=float)
+        l = np.asarray(buf["low"],    dtype=float)
+        c = np.asarray(buf["close"],  dtype=float)
+        v = np.asarray(buf["volume"], dtype=float)
         return self._live_signal(o, h, l, c, v)
-    
-    def sl_pct(self) -> float:          # artık soyut değil
+
+    # ------------- BACKTEST API ----------
+    @staticmethod
+    @abstractmethod
+    def generate_signals(df: pd.DataFrame) -> pd.Series:
+        """Vectorized +1/0/‑1 sinyalleri döndürür."""
+
+    # ------------- Yardımcı --------------
+    def sl_pct(self) -> float:
+        """PositionManager risk hesabı için."""
         return self._sl_pct
-    

@@ -4,3 +4,4 @@ numpy
 ta-lib
 requests
 pytest
+xgboost==2.0.3
