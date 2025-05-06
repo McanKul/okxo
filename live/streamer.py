@@ -5,6 +5,7 @@ from utils.bar_store import BarStore
 from utils.logger import setup_logger
 from utils.interfaces import IStreamer
 from binance import BinanceSocketManager
+import asyncio
 
 log = setup_logger("Streamer")
 
@@ -21,7 +22,7 @@ class Streamer(IStreamer):
         self.bar_store= bar_store
         self.queue    = asyncio.Queue()
         self.bsm      = BinanceSocketManager(self.client)
-
+        
         # partial bar tamponu
         self.partial = defaultdict(
             lambda: {"o":None,"h":0,"l":1e18,"c":None,
@@ -29,21 +30,37 @@ class Streamer(IStreamer):
         )
 
     # -----------------------------------------------------------------
-    async def preload_history(self, symbols, intervals, global_limit=250):
+    async def _fetch_kline(self, client, sym, tf, limit):
+        try:
+            kl = await client.futures_klines(symbol=sym, interval=tf, limit=limit)
+            return sym, tf, kl
+        except Exception as e:
+            log.warning("%s | %s preload hata: %s", sym, tf, e)
+            return sym, tf, None
+    
+    async def preload_history(self, symbols, intervals, limit=250, batch=50):
+        tasks = []
         for tf in intervals:
             for sym in symbols:
-                try:
-                    kl = await self.client.futures_klines(symbol=sym,
-                                                         interval=tf,
-                                                         limit=global_limit)
-                except Exception as e:
-                    log.warning("%s %s preload hata: %s", sym, tf, e); continue
-                for k in kl:
+                tasks.append(self._fetch_kline(self.client, sym, tf, limit))
+
+        # batch‑batch gönder, Binance weight sınırına takılma
+        for i in range(0, len(tasks), batch):
+            chunk = tasks[i:i + batch]
+            results = await asyncio.gather(*chunk)
+            for sym, tf, klines in results:
+                if not klines:
+                    continue
+                for k in klines:
                     self.bar_store.add_bar(sym, tf, {
                         "t":k[0],"T":k[6],"o":k[1],"h":k[2],
                         "l":k[3],"c":k[4],"v":k[5],
                         "x":True,"i":tf})
-                log.info("Preloaded %s × %s bars (%s)", sym, len(kl), tf)
+                log.info("Preloaded %s × %s bars (%s)",
+                        sym, len(klines), tf)
+
+            # Binance weight rahatlasın
+            await asyncio.sleep(0.3)
 
     # -----------------------------------------------------------------
     async def _stream_aggregate(self):

@@ -5,6 +5,7 @@ base_usdt_per_trade: 10
 max_concurrent: 10
 #global history limit eğer bir değer girilmezse bu değer geçerli olur.
 history_limit: 250
+preload_batch: 25 # daha fazlası olursa ban yiyebilriz (ben 4 saatlik ban yedim)
 default_params:
   leverage:      4
   sl_pct:        6

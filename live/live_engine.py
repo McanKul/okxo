@@ -47,7 +47,8 @@ class LiveEngine:
         # 3) Geçmiş mumları yükle
         await self.streamer.preload_history(
             self.symbols, self.timeframes,
-            global_limit=self.cfg.get_history_limit())
+            limit=self.cfg.get_history_limit(),
+            batch=self.cfg.get_preload_batch())
 
         # 4) Canlı akışı başlat
         await self.streamer.start()
