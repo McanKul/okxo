@@ -60,7 +60,7 @@ class Streamer(IStreamer):
                         sym, len(klines), tf)
 
             # Binance weight rahatlasın
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(1)
 
     # -----------------------------------------------------------------
     async def _stream_aggregate(self):

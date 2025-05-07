@@ -51,10 +51,10 @@ class ConfigLoader:
         return int(self.config.get("max_concurrent", 1))
 
     def get_history_limit(self) -> int:
-        return int(self.default_params.get("history_limit", 250))
+        return int(self.config.get("history_limit", 250))
     
     def get_preload_batch(self) -> int:
-        return int(self.default_params.get("preload_batch", 50))
+        return int(self.config.get("preload_batch", 50))
 
     def get_expire_sec(self) -> int:
         ex = self.default_params.get("expire_sec", 300)

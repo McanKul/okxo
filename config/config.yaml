@@ -4,8 +4,8 @@ risk_pct: 16.0          # toplam bakiyenin %16’sı işleme ayrılır
 base_usdt_per_trade: 10
 max_concurrent: 10
 #global history limit eğer bir değer girilmezse bu değer geçerli olur.
-history_limit: 250
-preload_batch: 25 # daha fazlası olursa ban yiyebilriz (ben 4 saatlik ban yedim)
+history_limit: 200
+preload_batch: 20 # daha fazlası olursa ban yiyebilriz (ben 4 saatlik ban yedim)
 default_params:
   leverage:      4
   sl_pct:        6
