@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from utils.config_loaders import ConfigLoader
 
+
 def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     logger = logging.getLogger(name)
     if logger.hasHandlers():
