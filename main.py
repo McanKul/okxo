@@ -7,7 +7,7 @@ import logging
 
 from pathlib import Path
 
-
+# todo py - venv venv enviroment ekle
 from binance import AsyncClient
 from live.live_engine import LiveEngine
 from utils.config_loaders import ConfigLoader
