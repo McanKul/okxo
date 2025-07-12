@@ -6,7 +6,10 @@ import matplotlib.animation as anim
 from collections import deque
 from binance import Client
 from binance import ThreadedWebsocketManager  # python-binance ≥1.0.19
-
+"""
+bize tick verilerini görmek için kullanılıyor.
+#todo solid kavramlarına uygun hale getirilecek.. ve ayrı bir dosyaya alınacka şimdilik burada kalabilir
+"""
 # ───── Parametreler ──────────────────────────────────────────────────────────
 SYMBOL       = "BTCUSDT"      # BÜYÜK harf!
 INTERVAL     = "1m"
